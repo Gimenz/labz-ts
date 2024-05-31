@@ -1,0 +1,30 @@
+datasource db {
+    provider = "mongodb"
+    url      = env("DATABASE_URL")
+}
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+model Contact {
+    id           String  @id @default(auto()) @map("_id") @db.ObjectId
+    jid          String
+    lid          String?
+    // /** name of the contact, you have saved on your WA */
+    name         String?
+    // /** name of the contact, the contact has set on their own on WA */
+    notify       String?
+    // /** I have no idea */
+    verifiedName String?
+    // Baileys Added
+    // /**
+    //  * Url of the profile picture of the contact
+    //  *
+    //  * 'changed' => if the profile picture has changed
+    //  * null => if the profile picture has not been set (default profile picture)
+    //  * any other string => url of the profile picture
+    //  */
+    imgUrl       String?
+    status       String?
+}

@@ -1,0 +1,7 @@
+{
+  "packname": "mg.bot",
+  "author": "@gimenz.id",
+  "downloadStory": true,
+  "storySend": "jid or group id, exmple: 123@s.whatsapp.net | 123@g.us",
+  "prefix": "."
+}

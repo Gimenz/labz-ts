@@ -1,0 +1,10 @@
+node_modules
+package-lock.json
+.env
+session
+db
+dist
+tes.js
+stori.json
+h.json
+tests

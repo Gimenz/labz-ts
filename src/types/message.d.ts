@@ -1,4 +1,4 @@
-import { AnyMessageContent, GroupMetadata, MessageType, MiscMessageGenerationOptions, proto } from "@whiskeysockets/baileys"
+import { AnyMessageContent, GroupMetadata, MessageType, MiscMessageGenerationOptions, proto, WAMessageKey } from "baileys"
 
 /**
  * Message serialize
@@ -8,7 +8,7 @@ export declare type MessageSerialize = {
     message: proto.IMessage
 
     /** Properties of a MessageKey. */
-    key: proto.IMessageKey
+    key: WAMessageKey
 
     /** Message Id */
     id: string
@@ -44,6 +44,7 @@ export declare type MessageSerialize = {
     viewOnce: boolean
 
     reply: (text: string, options?: AnyMessageContent) => Promise<proto.WebMessageInfo | undefined>
+    react: (emoji: string) => Promise<proto.WebMessageInfo | undefined>
 
     // additional properties
     /** Message timestamps */

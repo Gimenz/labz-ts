@@ -5,7 +5,7 @@ momen.tz.setDefault('Asia/Jakarta')
 export default momen
 
 
-const rtf = new Intl.RelativeTimeFormat('jv', { numeric: "auto" })
+const rtf = new Intl.RelativeTimeFormat('id', { numeric: "auto" })
 /**
  * It is the caller's responsibility to handle cut-off logic
  * such as deciding between displaying "in 7 days" or "in 1 week".

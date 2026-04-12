@@ -1,9 +1,10 @@
-import { getContentType, isJidGroup, proto } from "@whiskeysockets/baileys";
+import { getContentType, isJidGroup, proto } from "baileys";
 import { ICommand } from "../../types";
 import moment from 'moment-timezone';
 import WAClient from '../../handlers/client';
+import fs from 'fs';
+import { store } from "../../handlers/store";
 moment.tz.setDefault('Asia/Jakarta')
-let store = WAClient.store
 
 export default <ICommand>{
     name: 'deleted',
@@ -26,6 +27,7 @@ export default <ICommand>{
         } else {
             let terhapus = store.messages[m.from]
             if (args.length >= 1) {
+                // @ts-ignore
                 terhapus = args[0]
             }
 
@@ -36,6 +38,9 @@ export default <ICommand>{
                 .filter(x => x.message.protocolMessage)
                 .map(x => filtered.push(terhapus.get(x.message.protocolMessage.key.id)))
 
+            filtered = filtered.filter(Boolean)
+
+
             if (filtered.length == 0) return m.reply('tidak ada history di database')
 
             let title = m.isGroup ? `di ${formattedTitle}` : `${filtered.slice(-1)[0].hasOwnProperty('pushName') ? filtered.slice(-1)[0].pushName : m.from}`
@@ -44,7 +49,7 @@ export default <ICommand>{
             var index = 1
 
             filtered.map(({ message, messageTimestamp, key }) => {
-                temp += `*${index++}*. @${key.participant.replace('@s.whatsapp.net', '')} | ${moment((messageTimestamp as number) * 1000).format('DD-MM HH:mm:ss')} | ${getContentType(message)}\n`
+                temp += `*${index++}*. @${key.participant.replace('@lid', '')} | ${moment((messageTimestamp as number) * 1000).format('DD-MM HH:mm:ss')} | ${getContentType(message)}\n`
             })
 
             // @ts-ignore

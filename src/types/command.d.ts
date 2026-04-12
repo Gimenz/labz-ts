@@ -1,5 +1,5 @@
 import { Collection } from "@discordjs/collection";
-import { proto, WAMessage, WASocket } from "@whiskeysockets/baileys";
+import { proto, WAMessage, WASocket } from "baileys";
 import type { Axios } from "axios";
 import type fs from 'fs'
 import { MessageSerialize } from "./message";

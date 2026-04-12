@@ -3,6 +3,7 @@ import { inline, rtfFormat } from "../../utils"
 import { ICommand } from "../../types"
 import { igClient } from "../../lib"
 import moment from 'moment'
+import { loadCache, saveCache, MAX_AGE_HIGHLIGHT } from '../../utils/cache'
 
 export default <ICommand>{
     name: 'igh',
@@ -19,10 +20,81 @@ export default <ICommand>{
             const [, h1, mediaId] = /https:\/\/www\.instagram\.com\/s\/(.*?)\?story_media_id=(\d+)_(\d+)/g.exec(args[0])
             const highlightId = Buffer.from(h1, 'base64').toString('binary').match(/\d+/g)[0]
 
-            const data = await igClient._getReels(highlightId);
+            let cache = loadCache()
+
+            // cleanup expired
+            for (let key in cache) {
+                if (Date.now() - cache[key].timestamp > MAX_AGE_HIGHLIGHT) {
+                    delete cache[key]
+                }
+            }
+
+            let data
+            let useCache = false
+
+            if (cache[highlightId]) {
+                const cached = cache[highlightId].data
+
+                const exists = cached?.data?.reels_media
+                    ?.flatMap((x: any) => x.items || [])
+                    ?.some((x: any) => x.id.toString() === mediaId)
+
+                if (exists) {
+                    data = cached
+                    useCache = true
+                }
+            }
+
+            if (!useCache) {
+                const fresh = await igClient._getReels(highlightId)
+                console.log(fresh.data.reels_media);
+
+                if (cache[highlightId]) {
+                    const old = cache[highlightId].data
+
+                    const freshReels = fresh.data.reels_media
+
+
+
+                    const mergedReels = freshReels.map((reel: any) => {
+                        const oldReel = old.data.reels_media.find((x: any) => x.id === reel.id)
+
+                        if (!oldReel) return reel
+
+                        const mergedItems = [
+                            ...(oldReel.items || []),
+                            ...(reel.items || [])
+                        ].filter(
+                            (v, i, arr) =>
+                                i === arr.findIndex(x => x.id.toString() === v.id.toString())
+                        )
+
+                        return {
+                            ...reel,
+                            items: mergedItems
+                        }
+                    })
+
+                    data = {
+                        ...fresh,
+                        data: {
+                            ...fresh.data,
+                            reels_media: mergedReels
+                        }
+                    }
+                } else {
+                    data = fresh
+                }
+
+                cache[highlightId] = {
+                    data,
+                    timestamp: Date.now()
+                }
+
+                saveCache(cache)
+            }
 
             let reels_media = data.data.reels_media.find(x => x.id.match(highlightId))
-
             let item = reels_media.items.find(x => x.id.toString().match(mediaId))
             const mentions = item.tappable_objects.length ? item.tappable_objects.filter(v => v.__typename == 'GraphTappableMention') : []
 

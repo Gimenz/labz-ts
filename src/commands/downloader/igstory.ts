@@ -3,7 +3,9 @@ import { inline, rtfFormat } from "../../utils"
 import { ICommand } from "../../types"
 import { igClient } from "../../lib"
 import moment from 'moment'
-import { writeFileSync } from 'fs'
+import { loadCache, saveCache, MAX_AGE } from '../../utils/cache'
+
+let cache = loadCache()
 
 export default <ICommand>{
     name: 'igs',
@@ -13,8 +15,6 @@ export default <ICommand>{
     execute: async ({ m, client, args }) => {
         const ping = Date.now() - m.timestamps // time milliseconds
         try {
-            console.log(args[0], /https:\/\/(www\.)?instagram\.com\/stories\/.+/g.test(args[0]));
-
             if (!/https:\/\/(www\.)?instagram\.com\/stories\/.+/g.test(args[0])) return m.reply('not ig STORY url')
             m.reply(`${inline('processing')}`)
 
@@ -22,12 +22,67 @@ export default <ICommand>{
             let s = u.indexOf('?') >= 0 ? u.split('?')[0] : (u.split('').pop() == '/' != true ? `${u}` : u);
             let [username, storyId] = s.split('/stories/')[1].split('/')
 
-            const data = await igClient.fetchStories(username);
+            let data
+            let useCache = false
+
+            if (cache[username]) {
+                const cached = cache[username].data
+
+                const exists =
+                    cached.stories?.some((x: any) => x.id.toString().includes(storyId)) ||
+                    cached.graphql?.items?.some((x: any) => x.id.toString().includes(storyId))
+
+                if (exists) {
+                    data = cached
+                    useCache = true
+                }
+            }
+
+            if (!useCache) {
+                const fresh = await igClient.fetchStories(username)
+
+                if (cache[username]) {
+                    const old = cache[username].data
+
+                    // merge stories
+                    const mergedStories = [
+                        ...(old.stories || []),
+                        ...(fresh.stories || [])
+                    ].filter((v, i, arr) =>
+                        i === arr.findIndex(x => x.id.toString() === v.id.toString())
+                    )
+
+                    // merge graphql items
+                    const mergedGraphql = [
+                        ...(old.graphql?.items || []),
+                        ...(fresh.graphql?.items || [])
+                    ].filter((v, i, arr) =>
+                        i === arr.findIndex(x => x.id.toString() === v.id.toString())
+                    )
+
+                    data = {
+                        ...fresh,
+                        stories: mergedStories,
+                        graphql: {
+                            ...fresh.graphql,
+                            items: mergedGraphql
+                        }
+                    }
+                } else {
+                    data = fresh
+                }
+
+                cache[username] = {
+                    data,
+                    timestamp: Date.now()
+                }
+
+                saveCache(cache)
+            }
             let media = data.stories.find(x => x.id.toString().match(storyId))
             const gql = data.graphql.items.find(x => x.id.toString().match(storyId));
             // @ts-ignore
             const mentions = gql?.story_bloks_stickers !== undefined ? gql?.story_bloks_stickers.map(v => v.bloks_sticker.sticker_data) : []
-            writeFileSync('./stori.json', JSON.stringify(gql, null, 2))
             let caption = `taken at : ${moment(media.taken_at * 1000).format('DD/MM/YY HH:mm:ss')}`
 
             if (mentions.length) {

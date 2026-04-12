@@ -1,5 +1,5 @@
-import { BaileysEventEmitter, isJidUser } from "@whiskeysockets/baileys"
-import NodeCache from "node-cache"
+import { BaileysEventEmitter, isLidUser } from "baileys"
+import NodeCache from "@cacheable/node-cache"
 import Database from "../database"
 // import type { Contact } from "@whiskeysockets/baileys"
 
@@ -103,7 +103,7 @@ export default {
         }) => {
 
             for (const contact of newContacts) {
-                if (!isJidUser(contact.id)) return
+                if (!isLidUser(contact.id)) return
                 const oldContact = await contactsUpsert(contact)
                 if (isLatest) {
                     cachedContact.set(oldContact.id, oldContact)
@@ -112,7 +112,7 @@ export default {
         })
         ev.on('contacts.upsert', async contacts => {
             for (const contact of contacts) {
-                if (!isJidUser(contact.id)) return
+                if (!isLidUser(contact.id)) return
                 console.log(contact);
 
                 await contactsUpsert(contact)
@@ -120,7 +120,7 @@ export default {
         })
         ev.on('contacts.update', async updates => {
             for (const update of updates) {
-                if (!isJidUser(update.id)) return
+                if (!isLidUser(update.id)) return
 
                 if (!cachedContact.has(update.id)) {
                     await contactUpdate(update)

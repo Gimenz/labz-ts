@@ -1,7 +1,9 @@
 import { ICommand } from "../../types";
-import WAClient from '../../handlers/client';
+import { store } from '../../handlers/store';
 import moment from "moment-timezone";
-import { getContentType, S_WHATSAPP_NET } from "@whiskeysockets/baileys";
+import { getContentType, S_WHATSAPP_NET } from "baileys";
+import parsePhoneNumber from 'libphonenumber-js'
+import WAClient from "../../handlers/client";
 
 export default <ICommand>{
     name: 'getstory',
@@ -10,24 +12,21 @@ export default <ICommand>{
     description: 'getstory masseh',
     execute: async ({ m, client, args }) => {
         try {
-            const libPhonenumber = await import("libphonenumber-js")
-            let store = WAClient.store
-
             if (m.quoted && m.quoted.from == 'status@broadcast') {
                 await WAClient.resendMessage(client, m.from, m.quoted)
             } else if (args.length >= 1) {
-                const { countryCallingCode, phone } = libPhonenumber.parse(m.text, { extended: true })
-                const nomer = `${m.mentions ? m.mentions[0] : `${countryCallingCode + phone}@${S_WHATSAPP_NET}`}`
+                console.log(parsePhoneNumber(m.text));
+                const { countryCallingCode, nationalNumber } = parsePhoneNumber(m.text)
+
+                const nomer = `${`${countryCallingCode + nationalNumber}${S_WHATSAPP_NET}`}`
                 console.log(nomer);
 
                 const statuses = store.messages['status@broadcast'].array
-                    .filter(v => v.participant == nomer)
+                    .filter(v => v.key.participant == nomer)
                     .sort(({ messageTimestamp: timeA }, { messageTimestamp: timeB }) => {
                         return +new Date((timeA.toString())) - +new Date(timeB.toString())
                     })
-
-                console.log(statuses.slice(-1));
-
+                if (!statuses || statuses.length == 0) return m.reply(`Tidak ada story dari ${nomer}`)
                 let filtered = `Stories dari ${nomer}\n\n`
 
                 let n = 1;

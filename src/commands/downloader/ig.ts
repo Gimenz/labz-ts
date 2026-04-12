@@ -14,6 +14,8 @@ export default <ICommand>{
         const ping = Date.now() - m.timestamps // time milliseconds
         try {
             // m.reply('`processing...`')
+            if (!isIgPostUrl(args[0])) return m.reply('not ig POST url')
+            m.react('😭')
             const res = await igClient.fetchPost(args[0])
             m.reply(`${inline('succeed.')} - post from @${res.username}\n${rtfFormat(ping / 1000, "seconds")}`)
             for (let { url, type } of res.links) {

@@ -1,7 +1,8 @@
 import { Boom } from "@hapi/boom";
-import NodeCache from 'node-cache'
+import qrcode from "qrcode-terminal"
+import NodeCache from "@cacheable/node-cache";
 import makeWASocket, {
-    makeInMemoryStore,
+    CacheStore,
     DisconnectReason,
     Browsers,
     useMultiFileAuthState,
@@ -14,32 +15,29 @@ import makeWASocket, {
     WASocket,
     getContentType,
     normalizeMessageContent,
-    areJidsSameUser
-} from "@whiskeysockets/baileys";
+    areJidsSameUser,
+    fetchLatestBaileysVersion
+} from "baileys";
 import moment from 'moment-timezone';
 import fs from 'fs';
-import { colorize, packages } from "../utils";
+import { bgColor, cHex, colorize, packages } from "../utils";
 import { loadCommands, MessageHandler } from "./message";
 import MAIN_LOGGER from "../utils/logger";
 import { commands } from "../lib";
 import { MessageSerialize } from "../types";
-import P from 'pino'
+import P, { pino } from 'pino'
+import { store } from "./store";
+import { SQLiteStore } from '../store/sqlite-store';
+
+const sqliteStore = new SQLiteStore('baileys_store.db');
 
 const START_TIME = Date.now();
-
 moment.tz.setDefault('Asia/Jakarta')
-const logger = MAIN_LOGGER.child({})
-logger.level = 'error'
+const logger = pino({ level: "silent" })
 
-const store = makeInMemoryStore({})
-store.readFromFile('./db/baileys_store.json')
-setInterval(() => {
-    store.writeToFile('./db/baileys_store.json')
-}, 10_000)
-const msgRetryCounterCache = new NodeCache()
+const msgRetryCounterCache = new NodeCache() as CacheStore
 
 class WAClient {
-
     constructor() { }
 
     static decodeJid(jid: string): string {
@@ -54,10 +52,18 @@ class WAClient {
         const contentType = Object.keys(copy.message).find((x) => x !== "senderKeyDistributionMessage" && x !== "messageContextInfo" && x !== "inviteLinkGroupTypeV2")
         let msg = copy.message
         let content = msg[contentType]
-        console.log(contentType, content);
-        if (typeof content === 'string') msg[contentType] = text || content
-        else if (text || content.caption) content.caption = text || content.caption
-        else if (content.text) content.text = text || content.text
+        if (!content) {
+            console.log("cMod: No editable content found:", copy.message);
+            return copy; // atau return apa pun yang aman
+        }
+        if (typeof content === 'string') {
+            msg[contentType] = text || content;
+        } else if (content?.caption) {
+            content.caption = text || content.caption || 'failed to parse message';
+        } else if (content?.text) {
+            content.text = text || content.text;
+        }
+
         if (typeof content !== 'string') msg[contentType] = {
             ...content,
             ...options
@@ -75,15 +81,30 @@ class WAClient {
         return proto.WebMessageInfo.fromObject(copy)
     }
 
-    static store = store
-
     static async resendMessage(client: WASocket, toJid: string, message: Partial<MessageSerialize>, opts?: Omit<MessageGenerationOptionsFromContent, "userJid">) {
-        message.message = message.message?.viewOnceMessage ? message.message.viewOnceMessage?.message : message.message?.viewOnceMessageV2 ? message.message.viewOnceMessage?.message : message.message?.viewOnceMessageV2Extension ? message.message.viewOnceMessageV2Extension?.message : message.message
+        message.message =
+            message.message?.viewOnceMessage
+                ? message.message.viewOnceMessage?.message : message.message?.viewOnceMessageV2
+                    ? message.message.viewOnceMessageV2?.message : message.message?.viewOnceMessageV2Extension
+                        ? message.message.viewOnceMessageV2Extension?.message : message.message
         if (message.message[message.type]?.viewOnce) delete message.message[message.type].viewOnce
+        if (message.message?.ptvMessage) {
+            message.message = {
+                videoMessage: {
+                    ...message.message.ptvMessage,
+                    ptvMessage: undefined // hapus flag ptv
+                }
+            }
+        }
         const content = generateForwardMessageContent(proto.WebMessageInfo.fromObject(message), true)
 
         if (content.listMessage) content.listMessage.listType = 1
         const contentType = Object.keys(content).find((x) => x !== "senderKeyDistributionMessage" && x !== "messageContextInfo" && x !== "inviteLinkGroupTypeV2")
+
+        if (!contentType || !content[contentType]) {
+            console.log("resendMessage: Cannot resend message: no valid content", content);
+            return null; // atau return message apa pun yang aman
+        }
 
         content[contentType].contextInfo = {
             ...(message.message[message.type]?.contextInfo ? message.message[message.type].contextInfo : {}),
@@ -111,34 +132,42 @@ class WAClient {
 
     public start = async () => {
         await loadCommands()
-        const { state, saveCreds } = await useMultiFileAuthState('./session')
+
+        const { state, saveCreds } = await useMultiFileAuthState('./session');
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+
+        const getMessageFromStore = async (key: any) => {
+            if (store) {
+                const msg = await store.loadMessage(key.remoteJid, key.id);
+                return msg?.message || undefined;
+            }
+            return undefined;
+        };
         const client = makeWASocket({
+            // @ts-ignore
             logger,
-            printQRInTerminal: true,
+            printQRInTerminal: false,
             auth: {
                 creds: state.creds,
-                /** caching makes the store faster to send/recv messages */
-                keys: makeCacheableSignalKeyStore(state.keys, logger),
+                keys: makeCacheableSignalKeyStore(state.keys, logger)
             },
-            patchMessageBeforeSending: (message) => {
-                if (message.buttonsMessage || message.templateMessage || message.listMessage) {
-                    message = {
-                        viewOnceMessage: {
-                            message: {
-                                messageContextInfo: {
-                                    deviceListMetadataVersion: 2,
-                                    deviceListMetadata: {}
-                                },
-                                ...message
-                            }
-                        }
-                    }
-                }
-                return message
-            },
+            version,
             msgRetryCounterCache,
             browser: Browsers.macOS('Safari'),
             markOnlineOnConnect: false,
+            generateHighQualityLinkPreview: false,
+            syncFullHistory: false,
+            retryRequestDelayMs: 10,
+            transactionOpts: {
+                maxCommitRetries: 5,
+                delayBetweenTriesMs: 10
+            },
+            maxMsgRetryCount: 10,
+            appStateMacVerification: {
+                patch: true,
+                snapshot: true
+            },
+            getMessage: async (key) => await getMessageFromStore(key)
         })
 
         const LAUNCH_TIME_MS = Date.now() - START_TIME;
@@ -147,33 +176,86 @@ class WAClient {
 
         const time = moment().format('DD/MM/YY HH:mm:ss')
 
+        client.ev.on('messages.delete', async (msg) => {
+            console.log(msg);
+
+        })
+
         client.ev.on('messages.upsert', async msg => {
+            // sqliteStore.saveMessageBatch(
+            //     msg.messages.map(m => ({
+            //         id: m.key.id!,
+            //         jid: m.key.remoteJid!,
+            //         data: m,
+            //         senderJid: m.key.participant || m.key.remoteJid,
+            //         timestamp: m.messageTimestamp
+            //     }))
+            // );
             MessageHandler(client, msg)
         })
 
-        client.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+        client.ev.on('chats.upsert', async (chats) => {
+            // for (const chat of chats) {
+            //     const chatType = chat.name ? 'group' : 'individual';
+            //     sqliteStore.saveChat(chat.pnJid! || chat.id, chatType, chat);
+            // }
+            console.log('got chats', store.chats.all())
+        });
+
+        client.ev.on('contacts.upsert', (contacts) => {
+
+            console.log('got contacts', Object.values(store.contacts))
+            // for (const contact of contacts) {
+            //     sqliteStore.saveContact(contact.id, contact);
+            // }
+        })
+
+        client.ev.on('groups.update', async (updates) => {
+            // for (const update of updates) {
+            //     if (update.subject || update.participants) {
+            //         sqliteStore.saveGroupMetadata(
+            //             update.id,
+            //             update.subject || '',
+            //             update.participants?.length || 0,
+            //             update
+            //         );
+            //     }
+            // }
+        });
+
+        client.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+            // console.log(connection,lastDisconnect);
+
+            if (qr) {
+                qrcode.generate(qr, { small: true }, (qrcodeString) => {
+                    console.log(`\n${String(qrcodeString)}`);
+                });
+            }
             if (connection == 'connecting') {
-                console.log(colorize('[SYS]', '#009FFF'), colorize(time, '#A1FFCE'), colorize(`${packages.name} is Authenticating...`, '#f12711'));
+                console.log(colorize('[ auth ]', cHex.sys), colorize(time, cHex.timestamp), colorize(`${packages.name} is Authenticating...`, '#f12711'));
             } else if (connection == 'close') {
-                const { badSession, multideviceMismatch, loggedOut } = DisconnectReason
+                const { badSession, multideviceMismatch, loggedOut, } = DisconnectReason
                 const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode
                 if (statusCode == badSession || statusCode == multideviceMismatch || statusCode == loggedOut) {
-                    console.log(colorize('[ERROR]', '#009FFF'), colorize(time, '#A1FFCE'), colorize(`Connection error`, '#f12711'), lastDisconnect?.error?.message);
+                    console.log(colorize('[ error ]', cHex.err), colorize(time, cHex.timestamp), colorize(`Connection error`, '#f12711'), lastDisconnect?.error?.message);
                     console.log('session deleted, pls scan again')
                     fs.unlinkSync('./session')
                     setTimeout(() => this.start().catch(() => this.start()), 1500)
                 } else {
-                    console.log(colorize('[WARN]', '#efe638'), colorize(time, '#A1FFCE'), colorize(`Reconnectong...`, '#f12711'), lastDisconnect?.error?.message);
+                    console.log(lastDisconnect);
+
+                    console.log(colorize('[ warn ]', cHex.warn), colorize(time, cHex.timestamp), colorize(`Reconnectong...`, '#f12711'), lastDisconnect?.error?.message);
                     setTimeout(() => this.start().catch(() => this.start()), 1500)
                 }
             } else if (connection == 'open') {
                 console.log(
-                    colorize('[INFO]', '#A1FFCE'),
-                    colorize(moment().format('DD/MM/YY HH:mm:ss'), '#A1FFCE'),
-                    colorize(`${packages.name} is now Connected with ${state.creds.platform} client`, '#f64f59')
+                    colorize('[ info ]', cHex.sys),
+                    colorize(moment().format('DD/MM/YY HH:mm:ss'), cHex.timestamp),
+                    colorize(`${packages.name} is now Connected via ${bgColor(colorize(state.creds.platform, 'black'), cHex.success)}`, cHex.success)
                 )
-                console.log(`loaded with ${commands.size} commands, ${store.chats.length} chats, ${Object.keys(store.contacts).length} contacts`);
-                console.log(`in ${LAUNCH_TIME_MS / 1000}s`)
+                // const dbInfo = sqliteStore.getStorageStats()
+                console.log(`[ 🚀 ] loaded ${colorize(commands.size, cHex.sys)} cmd, ${colorize(store.chats.length, cHex.sys)} chts, ${colorize(store.contacts.length, cHex.sys)} contacts`);
+                console.log(`[ ⏱️ ] ${colorize(LAUNCH_TIME_MS / 1000, cHex.sys)}s`)
             }
 
         })

@@ -1,7 +1,12 @@
 {
   "packname": "mg.bot",
   "author": "@gimenz.id",
-  "downloadStory": true,
-  "storySend": "jid or group id, exmple: 123@s.whatsapp.net | 123@g.us",
-  "prefix": "."
+  "downloadStory": false,
+  "storySend": "6285236189413@s.whatsapp.net",
+  "prefix": ".",
+  "afk": {
+    "isAfk": false,
+    "reason": "",
+    "time": 0
+  }
 }

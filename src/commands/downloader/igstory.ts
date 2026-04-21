@@ -3,7 +3,7 @@ import { inline, rtfFormat } from "../../utils"
 import { ICommand } from "../../types"
 import { igClient } from "../../lib"
 import moment from 'moment'
-import { loadCache, saveCache, MAX_AGE } from '../../utils/cache'
+import { loadCache, saveCache, MAX_AGE_STORY } from '../../utils/cache'
 
 let cache = loadCache()
 

@@ -75,6 +75,7 @@ ATURAN:
 - IGNORE: tax, discount, shipping (hanya items!)
 - Recognize nama produk Indonesia yang umum dan enhance jika perlu
 - Jika struk payment app (Dana, QRIS, OVO), extract: merchant/toko, nominal, dan deskripsi
+- Jika ada indikasi/detail dipotong voucher/diskon, ambil value total setelah diskon, contoh harga 100k ada detail diskon/voucher 20k, price jadi 80k
 
 OUTPUT HANYA VALID JSON (no markdown):
 {

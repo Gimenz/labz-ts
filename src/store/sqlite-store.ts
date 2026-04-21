@@ -22,54 +22,72 @@ export class SQLiteStore {
     }
 
     private initializeSchema() {
-        // Check if sender_phone column exists
+        // 1. First, ensure the basic table exists so we don't crash on SELECT
+        this.db.exec(`
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            jid TEXT NOT NULL,
+            data JSON NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
+
+        // 2. Now check if we need to add the new columns (Migration check)
         try {
+            // This will only fail if 'sender_phone' is missing
             this.db.prepare('SELECT sender_phone FROM messages LIMIT 1').get();
         } catch (error) {
-            // Column tidak ada, perlu migrate
-            console.log('⚠️  Migrating database schema...');
+            console.log('⚠️  sender_phone column missing. Migrating database schema...');
             this.migrateSchema();
             return;
         }
 
-        // Schema sudah updated, skip
+        // 3. Ensure all other tables and indexes are present
         this.createTables();
     }
 
     private migrateSchema() {
-        this.db.exec(`
-        -- Backup old messages
-        CREATE TABLE IF NOT EXISTS messages_backup AS SELECT * FROM messages;
+        // We use a transaction to ensure database integrity
+        const migration = this.db.transaction(() => {
+            // Check if messages table actually has data to backup
+            const tableInfo = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
 
-        -- Drop old table
-        DROP TABLE IF EXISTS messages;
+            if (tableInfo) {
+                this.db.exec(`ALTER TABLE messages RENAME TO messages_old;`);
+            }
 
-        -- Create new messages table dengan sender_phone
-        CREATE TABLE messages (
-            id TEXT PRIMARY KEY,
-            jid TEXT NOT NULL,
-            sender_jid TEXT,
-            sender_phone TEXT,
-            message_type TEXT,
-            has_deleted_marker INTEGER DEFAULT 0,
-            data JSON NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
+            // Create the new schema
+            this.db.exec(`
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                jid TEXT NOT NULL,
+                sender_jid TEXT,
+                sender_phone TEXT,
+                message_type TEXT,
+                has_deleted_marker INTEGER DEFAULT 0,
+                data JSON NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
 
-        -- Restore data (sender_phone akan NULL, nanti auto-resolve)
-        INSERT INTO messages (id, jid, sender_jid, message_type, has_deleted_marker, data, created_at, updated_at)
-        SELECT id, jid, sender_jid, message_type, has_deleted_marker, data, created_at, updated_at 
-        FROM messages_backup;
+            // If old data exists, move it over
+            if (tableInfo) {
+                this.db.exec(`
+                INSERT INTO messages (id, jid, data, created_at)
+                SELECT id, jid, data, created_at FROM messages_old;
+                DROP TABLE messages_old;
+            `);
+            }
+        });
 
-        -- Drop backup
-        DROP TABLE messages_backup;
-    `);
-
-        // Create new tables
-        this.createTables();
-
-        console.log('✅ Migration completed');
+        try {
+            migration();
+            this.createTables(); // Setup indexes
+            console.log('✅ Migration completed');
+        } catch (err) {
+            console.error('❌ Migration failed:', err);
+        }
     }
 
     private createTables() {

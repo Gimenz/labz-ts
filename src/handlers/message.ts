@@ -53,7 +53,7 @@ export const MessageHandler = async (
 
         const afkData: AFKData = getAFK();
         const isIncoming = !m.fromMe;
-        if (afkData.active && !isJidStatusBroadcast(m.from) && isIncoming && !isCmd && !isGroupMsg) {
+        if (afkData.active && !isJidStatusBroadcast(m.from) && isIncoming && !isCmd && !isGroupMsg && !m.fromMe) {
             const chatId = m.from; // jid pengirim
 
             // Cek apakah chat ini masih dalam periode anti-spam
